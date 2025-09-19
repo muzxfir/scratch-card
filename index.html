@@ -9,11 +9,13 @@
       height: 100vh;
       background: #222;
       margin: 0;
+      overflow: hidden;
     }
     canvas {
       position: absolute;
       top: 0;
       left: 0;
+      transition: opacity 1s ease;
     }
     #container {
       position: relative;
@@ -34,22 +36,29 @@
     <canvas id="scratchCanvas"></canvas>
   </div>
 
+  <audio id="scratchSound" src="https://freesound.org/data/previews/250/250629_4486188-lq.mp3"></audio>
+
   <script>
     const canvas = document.getElementById('scratchCanvas');
     const ctx = canvas.getContext('2d');
     const container = document.getElementById('container');
-
-    canvas.width = container.offsetWidth;
-    canvas.height = container.offsetHeight;
-
-    // Cover image
-    const coverImage = new Image();
-    coverImage.src = "https://files.catbox.moe/pgp7mb.jpg";
-    coverImage.onload = () => {
-      ctx.drawImage(coverImage, 0, 0, canvas.width, canvas.height);
-    };
+    const scratchSound = document.getElementById('scratchSound');
 
     let scratching = false;
+    let lastPos = null;
+    let particles = [];
+
+    const coverImage = new Image();
+    coverImage.src = "https://files.catbox.moe/pgp7mb.jpg";
+
+    function resizeCanvas() {
+      canvas.width = container.offsetWidth;
+      canvas.height = container.offsetHeight;
+      ctx.drawImage(coverImage, 0, 0, canvas.width, canvas.height);
+    }
+
+    coverImage.onload = resizeCanvas;
+    window.addEventListener("resize", resizeCanvas);
 
     function getPos(e) {
       const rect = canvas.getBoundingClientRect();
@@ -59,25 +68,106 @@
       };
     }
 
-    function scratch(e) {
-      if (!scratching) return;
-      e.preventDefault(); // ✅ Prevent window move/scroll
-
-      const pos = getPos(e);
-      ctx.globalCompositeOperation = "destination-out"; // Erase effect
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 20, 0, Math.PI * 2);
-      ctx.fill();
+    function getDistance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
-    // Mouse
+    function playSound() {
+      scratchSound.currentTime = 0;
+      scratchSound.play();
+    }
+
+    function scratch(e) {
+      if (!scratching) return;
+      e.preventDefault();
+
+      const pos = getPos(e);
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.lineCap = "round";
+
+      let size = 20;
+
+      if (lastPos) {
+        const dist = getDistance(lastPos, pos);
+        size = Math.min(Math.max(dist, 20), 60);
+        ctx.lineWidth = size;
+
+        ctx.beginPath();
+        ctx.moveTo(lastPos.x, lastPos.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Sparkle particles
+      for (let i = 0; i < 5; i++) {
+        particles.push({
+          x: pos.x + (Math.random() - 0.5) * size,
+          y: pos.y + (Math.random() - 0.5) * size,
+          alpha: 1,
+          size: Math.random() * 3 + 1,
+          vy: -Math.random() * 1 - 0.5
+        });
+      }
+
+      lastPos = pos;
+
+      // Play scratch sound
+      playSound();
+    }
+
+    function stopScratch() {
+      scratching = false;
+      lastPos = null;
+      checkCompletion();
+    }
+
+    function checkCompletion() {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let cleared = 0;
+      for (let i = 3; i < imgData.data.length; i += 4) {
+        if (imgData.data[i] === 0) cleared++;
+      }
+      const percent = (cleared / (canvas.width * canvas.height)) * 100;
+      if (percent > 70) fadeOutCanvas();
+    }
+
+    function fadeOutCanvas() {
+      canvas.style.opacity = 0;
+      setTimeout(() => {
+        canvas.style.display = 'none';
+        alert("Congratulations! You revealed the hidden image.");
+      }, 1000);
+    }
+
+    // Particle animation
+    function animate() {
+      requestAnimationFrame(animate);
+      ctx.globalCompositeOperation = 'source-over';
+      particles.forEach((p, i) => {
+        ctx.fillStyle = `rgba(255,255,255,${p.alpha})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        p.y += p.vy;
+        p.alpha -= 0.02;
+        if (p.alpha <= 0) particles.splice(i, 1);
+      });
+    }
+    animate();
+
+    // Mouse events
     canvas.addEventListener("mousedown", (e) => { e.preventDefault(); scratching = true; });
-    canvas.addEventListener("mouseup", (e) => { e.preventDefault(); scratching = false; });
+    canvas.addEventListener("mouseup", stopScratch);
     canvas.addEventListener("mousemove", scratch);
 
-    // Touch
+    // Touch events
     canvas.addEventListener("touchstart", (e) => { e.preventDefault(); scratching = true; });
-    canvas.addEventListener("touchend", (e) => { e.preventDefault(); scratching = false; });
+    canvas.addEventListener("touchend", stopScratch);
     canvas.addEventListener("touchmove", scratch);
   </script>
 </body>
